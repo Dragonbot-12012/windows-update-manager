@@ -46,7 +46,7 @@ If you download a binary, verify its SHA-256 against the `SHA256SUMS.txt` publis
 release:
 
 ```powershell
-Get-FileHash '.\Windows Update Manager.exe' -Algorithm SHA256
+Get-FileHash '.\Windows-Update-Manager.exe' -Algorithm SHA256
 ```
 
 ### What this software never does

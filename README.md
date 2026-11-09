@@ -39,7 +39,7 @@ Result: Windows Update stops, the Microsoft Store keeps working.
 
 ## Download
 
-Grab `Windows Update Manager.exe` from the [Releases](../../releases) page.
+Grab `Windows-Update-Manager.exe` from the [Releases](../../releases) page.
 
 > The executable is **not code-signed**, so Windows SmartScreen may warn you the first time.
 > Click *More info → Run anyway*, or [build it yourself](#build-from-source) — the whole build

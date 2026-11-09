@@ -37,12 +37,14 @@ jobs:
 
           .\src\Build-Exe.ps1 -Version $version
 
-      - name: Write checksums
+      # GitHub replaces spaces in release asset names with dots, so stage a
+      # hyphenated copy for distribution. Local builds keep the spaced name.
+      - name: Stage release asset
         shell: powershell
         run: |
-          $file = 'dist\Windows Update Manager.exe'
-          $hash = (Get-FileHash $file -Algorithm SHA256).Hash.ToLower()
-          "$hash  Windows Update Manager.exe" | Out-File -FilePath 'dist\SHA256SUMS.txt' -Encoding ascii
+          Copy-Item 'dist\Windows Update Manager.exe' 'dist\Windows-Update-Manager.exe' -Force
+          $hash = (Get-FileHash 'dist\Windows-Update-Manager.exe' -Algorithm SHA256).Hash.ToLower()
+          "$hash  Windows-Update-Manager.exe" | Out-File -FilePath 'dist\SHA256SUMS.txt' -Encoding ascii
           Get-Content 'dist\SHA256SUMS.txt'
 
       - name: Upload build artifact
@@ -50,7 +52,7 @@ jobs:
         with:
           name: Windows-Update-Manager
           path: |
-            dist/Windows Update Manager.exe
+            dist/Windows-Update-Manager.exe
             dist/SHA256SUMS.txt
           if-no-files-found: error
 
@@ -59,7 +61,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            dist/Windows Update Manager.exe
+            dist/Windows-Update-Manager.exe
             dist/SHA256SUMS.txt
           generate_release_notes: true
           fail_on_unmatched_files: true
