@@ -1,0 +1,18 @@
+# Build output
+dist/
+*.exe
+
+# Backups written by the app and the standalone scripts
+backup-*/
+*.reg
+*.pol.bak
+
+# Logs
+*.log
+
+# Editor / OS noise
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
+.DS_Store

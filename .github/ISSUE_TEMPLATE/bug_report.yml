@@ -1,0 +1,78 @@
+name: Bug report
+description: Something didn't work as expected
+title: "[Bug] "
+labels: [ "bug" ]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. **Do not** paste registry dumps that contain personal or
+        organizational data — trim them to the relevant keys.
+
+        If this is a security issue, close this and follow SECURITY.md instead.
+
+  - type: input
+    id: windows
+    attributes:
+      label: Windows version and build
+      description: Output of `winver`, e.g. "Windows 11 Pro 24H2, build 26100.4349"
+      placeholder: Windows 11 Pro 24H2, build 26100.4349
+    validations:
+      required: true
+
+  - type: dropdown
+    id: how
+    attributes:
+      label: How are you running it?
+      options:
+        - Released .exe
+        - Self-built .exe
+        - PowerShell script from source
+        - Standalone console script
+    validations:
+      required: true
+
+  - type: dropdown
+    id: action
+    attributes:
+      label: Which action?
+      options:
+        - Disable
+        - Enable
+        - Startup / launch
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect to happen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: What actually happened?
+      description: Include the status line text and any error message.
+    validations:
+      required: true
+
+  - type: textarea
+    id: state
+    attributes:
+      label: Relevant state
+      description: Paste the output of these commands (they contain no personal data).
+      render: powershell
+      value: |
+        Get-Service wuauserv, UsoSvc, DoSvc, bits, cryptsvc, InstallService | Select-Object Name, Status, StartType
+        Test-Path 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate'
+        (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings' -ErrorAction SilentlyContinue).PauseUpdatesExpiryTime
+        (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Explorer' -ErrorAction SilentlyContinue).SettingsPageVisibility
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else?
+      description: Logs, screenshots, whether it's a domain/MDM machine, antivirus software, etc.

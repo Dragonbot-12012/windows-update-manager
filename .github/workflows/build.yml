@@ -1,0 +1,65 @@
+name: Build
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install ps2exe
+        shell: powershell
+        run: |
+          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted -ErrorAction SilentlyContinue
+          Install-Module ps2exe -Scope CurrentUser -Force -AllowClobber
+
+      - name: Build single-file exe
+        shell: powershell
+        run: |
+          Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
+
+          $version = '1.0.0.0'
+          if ($env:GITHUB_REF -match '^refs/tags/v(\d+\.\d+\.\d+)') {
+            $version = "$($matches[1]).0"
+          }
+          Write-Host "Building version $version"
+
+          .\src\Build-Exe.ps1 -Version $version
+
+      - name: Write checksums
+        shell: powershell
+        run: |
+          $file = 'dist\Windows Update Manager.exe'
+          $hash = (Get-FileHash $file -Algorithm SHA256).Hash.ToLower()
+          "$hash  Windows Update Manager.exe" | Out-File -FilePath 'dist\SHA256SUMS.txt' -Encoding ascii
+          Get-Content 'dist\SHA256SUMS.txt'
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Windows-Update-Manager
+          path: |
+            dist/Windows Update Manager.exe
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
+
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/Windows Update Manager.exe
+            dist/SHA256SUMS.txt
+          generate_release_notes: true
+          fail_on_unmatched_files: true
