@@ -22,7 +22,19 @@ jobs:
         shell: powershell
         run: |
           Set-PSRepository -Name PSGallery -InstallationPolicy Trusted -ErrorAction SilentlyContinue
-          Install-Module ps2exe -Scope CurrentUser -Force -AllowClobber
+          $installed = $false
+          for ($i = 1; $i -le 3; $i++) {
+            try {
+              Install-Module ps2exe -Scope CurrentUser -Force -AllowClobber -ErrorAction Stop
+              $installed = $true
+              break
+            } catch {
+              Write-Warning "ps2exe install attempt $i failed: $($_.Exception.Message)"
+              Start-Sleep -Seconds 10
+            }
+          }
+          if (-not $installed) { throw 'Could not install ps2exe after 3 attempts' }
+          Get-Module -ListAvailable ps2exe | Select-Object Name, Version
 
       - name: Build single-file exe
         shell: powershell
