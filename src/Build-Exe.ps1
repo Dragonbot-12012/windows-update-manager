@@ -80,7 +80,12 @@ $oldBlock = @'
 # Paths + shared core
 # ---------------------------------------------------------------------------
 $scriptDir = $PSScriptRoot
-if (-not $scriptDir) { $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path }
+if (-not $scriptDir) {
+    # In a ps2exe build both $PSScriptRoot and the command path are empty,
+    # so only resolve a parent directory when there actually is a path.
+    $cmdPath = $MyInvocation.MyCommand.Path
+    if ($cmdPath) { $scriptDir = Split-Path -Parent $cmdPath }
+}
 
 # Backups always go to ProgramData so nothing is written next to the app.
 $base = Join-Path $env:ProgramData 'WindowsUpdateManager'
@@ -99,7 +104,12 @@ $newBlock = @'
 # Paths (the core is inlined in the compiled build)
 # ---------------------------------------------------------------------------
 $scriptDir = $PSScriptRoot
-if (-not $scriptDir) { $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path }
+if (-not $scriptDir) {
+    # ps2exe leaves both $PSScriptRoot and the command path empty. This block
+    # must never call Split-Path with a null path, or startup throws.
+    $cmdPath = $MyInvocation.MyCommand.Path
+    if ($cmdPath) { $scriptDir = Split-Path -Parent $cmdPath }
+}
 
 # Backups always go to ProgramData so nothing is written next to the app.
 $base = Join-Path $env:ProgramData 'WindowsUpdateManager'

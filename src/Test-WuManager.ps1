@@ -167,6 +167,34 @@ if ($initial.State -eq 'Disabled') {
 
 $final = Get-WuState
 Log "Final: state=$($final.State) policy=$($final.PolicyKey) paused=$($final.Paused) polWU=$($final.PolWuEntries)"
+
+# ---------------------------------------------------------------------------
+# Startup regression: a ps2exe build leaves $PSScriptRoot and the command path
+# empty, so the path block must not call Split-Path with a null path.
+# ---------------------------------------------------------------------------
+Log ""
+Log "== startup path resolution (ps2exe conditions) =="
+$guiText = Get-Content (Join-Path $base 'WindowsUpdateManager.ps1') -Raw
+$startMarker = '# Paths + shared core'
+$endMarker   = '# Backups always go to ProgramData'
+$si = $guiText.IndexOf($startMarker)
+$ei = $guiText.IndexOf($endMarker)
+if ($si -ge 0 -and $ei -gt $si) {
+    $block = $guiText.Substring($si, $ei - $si)
+    $threw = $null
+    try {
+        # A string scriptblock has no $PSScriptRoot and no command path, which
+        # is exactly what the compiled executable sees at startup.
+        $probe = "`$ErrorActionPreference = 'Stop'`n`$PSScriptRoot = `$null`n" + $block
+        $null = & ([scriptblock]::Create($probe))
+    } catch {
+        $threw = $_.Exception.Message
+    }
+    Check 'path block survives empty $PSScriptRoot' ($null -eq $threw) "($threw)"
+} else {
+    Check 'path block found in GUI script' $false '(markers not found)'
+}
+
 Log "RESULT: $script:pass passed, $script:fail failed"
 Log "Log: $log"
 

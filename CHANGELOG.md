@@ -20,6 +20,13 @@ First public release.
 - `Test-WuManager.ps1` self-test: four `Disable → Enable` cycles, 110 assertions.
 - CI workflow that builds the executable and attaches it to tagged releases.
 
+### Fixed
+
+- The compiled executable no longer crashes at startup with
+  `Cannot bind argument to parameter 'Path' because it is null`. A ps2exe build leaves
+  `$PSScriptRoot` and the command path empty, so the path block now skips `Split-Path`
+  in that case. Added a regression assertion to `Test-WuManager.ps1`.
+
 ### Notes
 
 - Services are **never** stopped or disabled, so the Microsoft Store keeps working.
