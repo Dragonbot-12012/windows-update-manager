@@ -10,11 +10,19 @@ antivirus did not quarantine it — unsigned binaries are sometimes blocked.
 Click **More info → Run anyway**, or build it yourself (`.\src\Build-Exe.ps1`).
 
 **"This app can't run on your PC."**
-The release build is x64. On 32-bit Windows, run the source instead:
+You downloaded the wrong architecture. Use `Windows-Update-Manager-x64.exe` on 64-bit Windows and
+`Windows-Update-Manager-x86.exe` on 32-bit Windows. Check **Settings → System → About → System type**
+if you are unsure.
 
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -STA -File .\src\WindowsUpdateManager.ps1
-```
+**The 32-bit exe says "This is the 32-bit build, but Windows is 64-bit."**
+That is intentional. A 32-bit process on 64-bit Windows is redirected to `WOW6432Node` and
+`SysWOW64`, where Windows does not read these policies, so the 32-bit build refuses to run instead
+of pretending to work. Use `Windows-Update-Manager-x64.exe`. If both files are in the same folder,
+the 32-bit build starts the x64 one for you.
+
+**Script mode: "This is a 32-bit PowerShell session on 64-bit Windows."**
+Run the script from 64-bit PowerShell (`%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe`),
+not the SysWOW64 one.
 
 **Script mode: "running scripts is disabled on this system".**
 Use the provided launcher or bypass the policy for that one process:

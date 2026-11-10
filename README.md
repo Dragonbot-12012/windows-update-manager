@@ -7,7 +7,7 @@ No Group Policy Editor required, no services disabled, no third-party drivers.
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows%208%20%7C%2010%20%7C%2011-0078D4.svg)](#requirements)
-[![Version](https://img.shields.io/badge/version-1.0.0-brightgreen.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.0.1-brightgreen.svg)](CHANGELOG.md)
 
 ![Windows Update Manager screenshot](docs/screenshot.png)
 
@@ -36,18 +36,31 @@ Result: Windows Update stops, the Microsoft Store keeps working.
   `%ProgramData%\WindowsUpdateManager\backup-<timestamp>\` before every change.
 - **Works without `gpedit.msc`**, so Windows Home editions are supported.
 - **Single `.exe`.** Logo, logic and icon are all embedded — no side files, no installer.
+- **32-bit and 64-bit builds.** One file each, named so you can't grab the wrong one.
 
 ## Download
 
-Grab `Windows-Update-Manager.exe` from the [Releases](../../releases) page.
+Grab the file that matches your Windows from the [Releases](../../releases) page:
 
-> The executable is **not code-signed**, so Windows SmartScreen may warn you the first time.
+| Your Windows | File |
+| --- | --- |
+| **64-bit** — Windows 8 / 8.1 / 10 / 11 x64 (almost everyone) | `Windows-Update-Manager-x64.exe` |
+| **32-bit** — Windows 8 / 8.1 / 10 x86 | `Windows-Update-Manager-x86.exe` |
+
+Not sure which one? Press <kbd>Win</kbd>+<kbd>Pause</kbd> (or Settings → System → About) and look at
+**System type**. If it says *64-bit operating system*, use the x64 file.
+
+> The 32-bit build is **only** for 32-bit Windows. On 64-bit Windows it shows a warning and exits
+> instead of silently writing to the wrong registry view — use the x64 build there.
+>
+> The executables are **not code-signed**, so Windows SmartScreen may warn you the first time.
 > Click *More info → Run anyway*, or [build it yourself](#build-from-source) — the whole build
-> takes about 30 seconds.
+> takes about a minute.
 
 ## Usage
 
-1. Run `Windows Update Manager.exe` and approve the UAC prompt.
+1. Run `Windows-Update-Manager-x64.exe` (or the x86 file on 32-bit Windows) and approve the UAC
+   prompt.
 2. The status line shows the current state: `Currently: Enabled` or
    `Currently: Disabled (paused, page hidden)`.
 3. Click **Disable** → confirm → Windows Update is paused, blocked by policy, and its Settings page
@@ -92,7 +105,8 @@ See [docs/how-it-works.md](docs/how-it-works.md) for the full technical write-up
 
 - Windows 8 / 8.1 / 10 / 11 — Home, Pro, Enterprise or Education
 - Administrator rights (the app requests them automatically)
-- 64-bit Windows (the released build is x64)
+- 64-bit Windows for `Windows-Update-Manager-x64.exe`; 32-bit Windows for
+  `Windows-Update-Manager-x86.exe`
 - PowerShell 5.1 if you run the source instead of the `.exe`
 
 ## Build from source
@@ -103,16 +117,21 @@ cd windows-update-manager
 
 Install-Module ps2exe -Scope CurrentUser -Force
 
-# Produces dist\Windows Update Manager.exe
+# Produces dist\Windows-Update-Manager-x64.exe and dist\Windows-Update-Manager-x86.exe
 .\src\Build-Exe.ps1
 ```
 
 Useful switches:
 
 ```powershell
+.\src\Build-Exe.ps1 -Architecture x64          # only the 64-bit build
+.\src\Build-Exe.ps1 -Architecture x86          # only the 32-bit build
 .\src\Build-Exe.ps1 -Version 1.0.1.0
-.\src\Build-Exe.ps1 -OutputPath "$env:TEMP\WUM.exe"
+.\src\Build-Exe.ps1 -Architecture x64 -OutputPath "$env:TEMP\WUM.exe"
 ```
+
+The build verifies the PE header of every output (`0x8664` for x64, `0x014C` for x86), so a
+mis-labelled binary fails the build instead of shipping.
 
 **Run without compiling:**
 
@@ -123,6 +142,9 @@ Useful switches:
 # or directly
 powershell -NoProfile -ExecutionPolicy Bypass -STA -File .\src\WindowsUpdateManager.ps1
 ```
+
+On 64-bit Windows, run the source from **64-bit PowerShell**. A 32-bit session is redirected to
+`WOW6432Node` / `SysWOW64`, so the scripts refuse to run there rather than write to the wrong place.
 
 **Standalone scripts** (console, no GUI):
 
@@ -140,7 +162,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -STA -File .\src\WindowsUpdateMana
 .\src\Test-WuManager.ps1
 ```
 
-The log is written to `%TEMP%\wu-manager-test.log`. The v1.0.0 release passes **110 / 110** checks.
+The log is written to `%TEMP%\wu-manager-test.log`. The v1.0.1 release passes **111 / 111** checks.
 
 ## Project layout
 
@@ -149,14 +171,14 @@ windows-update-manager/
 ├─ src/
 │  ├─ WuCore.ps1                  # all enable/disable logic (shared by GUI + tests)
 │  ├─ WindowsUpdateManager.ps1    # WPF GUI
-│  ├─ Build-Exe.ps1               # single-file .exe build
+│  ├─ Build-Exe.ps1               # x64 + x86 single-file .exe build
 │  ├─ Disable-WindowsUpdate.ps1   # standalone console version
 │  ├─ Enable-WindowsUpdate.ps1    # standalone console version
 │  ├─ Test-WuManager.ps1          # self-test harness
 │  └─ Windows Update Manager.vbs  # windowless launcher
 ├─ assets/                        # logo source, PNG and generated ICO
 ├─ docs/                          # how-it-works, troubleshooting, screenshot
-└─ .github/workflows/build.yml    # CI: build + attach exe to tagged releases
+└─ .github/workflows/build.yml    # CI: build both architectures + attach to tagged releases
 ```
 
 ## Uninstall

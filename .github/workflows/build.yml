@@ -36,27 +36,34 @@ jobs:
           if (-not $installed) { throw 'Could not install ps2exe after 3 attempts' }
           Get-Module -ListAvailable ps2exe | Select-Object Name, Version
 
-      - name: Build single-file exe
+      - name: Build x64 + x86 executables
         shell: powershell
         run: |
           Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
 
-          $version = '1.0.0.0'
+          $version = '1.0.1.0'
           if ($env:GITHUB_REF -match '^refs/tags/v(\d+\.\d+\.\d+)') {
             $version = "$($matches[1]).0"
           }
           Write-Host "Building version $version"
 
-          .\src\Build-Exe.ps1 -Version $version
+          .\src\Build-Exe.ps1 -Version $version -Architecture Both
 
-      # GitHub replaces spaces in release asset names with dots, so stage a
-      # hyphenated copy for distribution. Local builds keep the spaced name.
-      - name: Stage release asset
+      - name: Write checksums
         shell: powershell
         run: |
-          Copy-Item 'dist\Windows Update Manager.exe' 'dist\Windows-Update-Manager.exe' -Force
-          $hash = (Get-FileHash 'dist\Windows-Update-Manager.exe' -Algorithm SHA256).Hash.ToLower()
-          "$hash  Windows-Update-Manager.exe" | Out-File -FilePath 'dist\SHA256SUMS.txt' -Encoding ascii
+          $files = @(
+            'dist\Windows-Update-Manager-x64.exe',
+            'dist\Windows-Update-Manager-x86.exe'
+          )
+          foreach ($f in $files) {
+            if (-not (Test-Path $f)) { throw "Missing build output: $f" }
+          }
+          $lines = foreach ($f in $files) {
+            $hash = (Get-FileHash $f -Algorithm SHA256).Hash.ToLower()
+            "$hash  $(Split-Path -Leaf $f)"
+          }
+          $lines | Out-File -FilePath 'dist\SHA256SUMS.txt' -Encoding ascii
           Get-Content 'dist\SHA256SUMS.txt'
 
       - name: Upload build artifact
@@ -64,7 +71,8 @@ jobs:
         with:
           name: Windows-Update-Manager
           path: |
-            dist/Windows-Update-Manager.exe
+            dist/Windows-Update-Manager-x64.exe
+            dist/Windows-Update-Manager-x86.exe
             dist/SHA256SUMS.txt
           if-no-files-found: error
 
@@ -73,7 +81,26 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            dist/Windows-Update-Manager.exe
+            dist/Windows-Update-Manager-x64.exe
+            dist/Windows-Update-Manager-x86.exe
             dist/SHA256SUMS.txt
-          generate_release_notes: true
           fail_on_unmatched_files: true
+          body: |
+            ## Download
+
+            | Your Windows | File |
+            | --- | --- |
+            | **64-bit** (Windows 8/8.1/10/11 x64 — almost everyone) | `Windows-Update-Manager-x64.exe` |
+            | **32-bit** (Windows 8/8.1/10 x86) | `Windows-Update-Manager-x86.exe` |
+
+            Verify your download against `SHA256SUMS.txt`.
+
+            ## Notes
+
+            - Services are never stopped or disabled, so the Microsoft Store keeps working.
+            - The 32-bit build refuses to run on 64-bit Windows. A 32-bit process is redirected to
+              `WOW6432Node` and `SysWOW64`, where Windows does not read these policies.
+            - The binaries are unsigned, so SmartScreen may warn on first run. Build from source if
+              that matters to you.
+
+            Full details: [CHANGELOG.md](https://github.com/Dragonbot-12012/windows-update-manager/blob/main/CHANGELOG.md)

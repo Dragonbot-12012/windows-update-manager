@@ -17,6 +17,11 @@
 
 $ErrorActionPreference = 'Stop'
 
+# Replaced with the real version at build time (see src/Build-Exe.ps1).
+# Script mode keeps the fallback below.
+$appVersion = '__APP_VERSION__'
+if ($appVersion -like '__*') { $appVersion = '1.0.1' }
+
 # ---------------------------------------------------------------------------
 # Ensure elevated + STA
 # ---------------------------------------------------------------------------
@@ -80,6 +85,36 @@ if (-not (Test-Path $core)) {
     exit 1
 }
 . $core
+
+# ---------------------------------------------------------------------------
+# Architecture guard
+# ---------------------------------------------------------------------------
+# The 32-bit build is correct on 32-bit Windows. On 64-bit Windows a 32-bit
+# process would write to WOW6432Node and SysWOW64, so refuse instead of
+# silently doing nothing. Offer the x64 binary when it sits next to us.
+if (-not (Test-WuArchitectureSupported)) {
+    $selfPath = $null
+    try { $selfPath = [System.Diagnostics.Process]::GetCurrentProcess().MainModule.FileName } catch { }
+
+    $x64Path = $null
+    if ($selfPath) {
+        $selfDir = Split-Path -Parent $selfPath
+        foreach ($name in @('Windows-Update-Manager-x64.exe', 'Windows Update Manager.exe')) {
+            $candidate = Join-Path $selfDir $name
+            if ($candidate -ne $selfPath -and (Test-Path $candidate)) { $x64Path = $candidate; break }
+        }
+    }
+
+    if ($x64Path) {
+        try { Start-Process -FilePath $x64Path; exit 0 } catch { }
+    }
+
+    Add-Type -AssemblyName System.Windows.Forms
+    [System.Windows.Forms.MessageBox]::Show(
+        "This is the 32-bit build, but Windows is 64-bit.`n`nWindows only reads these policies from the 64-bit registry, so the 32-bit build cannot change them here.`n`nUse Windows-Update-Manager-x64.exe, or run the source with 64-bit PowerShell.",
+        'Windows Update Manager', 'OK', 'Warning') | Out-Null
+    exit 1
+}
 
 # ---------------------------------------------------------------------------
 # Window (normal frame -> OS default rounded corners)
@@ -169,7 +204,7 @@ if (-not (Test-Path $core)) {
     <Grid Grid.Row="1" Margin="0,12,0,0">
       <TextBlock Text="made by dragonbot" Foreground="#585B70" FontSize="11"
                  HorizontalAlignment="Left" VerticalAlignment="Bottom"/>
-      <TextBlock Text="v1.0" Foreground="#45475A" FontSize="10"
+      <TextBlock x:Name="lblVersion" Text="v1.0.1" Foreground="#45475A" FontSize="10"
                  HorizontalAlignment="Right" VerticalAlignment="Bottom"/>
     </Grid>
   </Grid>
@@ -184,6 +219,10 @@ $script:btnEnable  = $window.FindName('btnEnable')
 $script:btnDisable = $window.FindName('btnDisable')
 $script:lblStatus  = $window.FindName('lblStatus')
 $script:imgLogo    = $window.FindName('imgLogo')
+$script:lblVersion = $window.FindName('lblVersion')
+
+# Keep the footer in sync with the build version.
+$script:lblVersion.Text = "v$appVersion"
 
 # Logo: embedded base64 in the compiled build, or logo.png next to the script.
 try {

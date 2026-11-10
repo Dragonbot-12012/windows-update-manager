@@ -41,6 +41,16 @@ $script:PauseEndNames = @(
 $script:PauseAllNames = @($script:PauseStartNames + $script:PauseEndNames)
 
 # ---------------------------------------------------------------------------
+# Architecture
+# ---------------------------------------------------------------------------
+# Windows reads these policies from the 64-bit registry view and the native
+# System32. A 32-bit process on 64-bit Windows is redirected to WOW6432Node and
+# SysWOW64, where Windows never looks, so it must not run there.
+function Test-WuArchitectureSupported {
+    return ((-not [Environment]::Is64BitOperatingSystem) -or [Environment]::Is64BitProcess)
+}
+
+# ---------------------------------------------------------------------------
 # Registry.pol parser / writer
 # ---------------------------------------------------------------------------
 function Get-PolEntries {

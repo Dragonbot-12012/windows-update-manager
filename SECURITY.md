@@ -43,11 +43,15 @@ Because of that, the recommended path is to **build it yourself** from source:
 ```
 
 If you download a binary, verify its SHA-256 against the `SHA256SUMS.txt` published with the
-release:
+release. The file lists both architectures, so check the one you downloaded:
 
 ```powershell
-Get-FileHash '.\Windows-Update-Manager.exe' -Algorithm SHA256
+Get-FileHash '.\Windows-Update-Manager-x64.exe' -Algorithm SHA256   # 64-bit Windows
+Get-FileHash '.\Windows-Update-Manager-x86.exe' -Algorithm SHA256   # 32-bit Windows
 ```
+
+Compare the result with the matching line in `SHA256SUMS.txt`. A mismatch means the file is not the
+one that was built and published — do not run it.
 
 ### What this software never does
 

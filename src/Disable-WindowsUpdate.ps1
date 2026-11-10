@@ -44,6 +44,18 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
 
 $ErrorActionPreference = 'Continue'
 
+# ---------------------------------------------------------------------------
+# Architecture guard
+# ---------------------------------------------------------------------------
+# Windows reads these policies from the 64-bit registry and the native System32.
+# A 32-bit session on 64-bit Windows would write to WOW6432Node / SysWOW64.
+if ([Environment]::Is64BitOperatingSystem -and -not [Environment]::Is64BitProcess) {
+    Write-Host "This is a 32-bit PowerShell session on 64-bit Windows." -ForegroundColor Red
+    Write-Host "Run it from 64-bit PowerShell so the policies land in the 64-bit registry." -ForegroundColor Red
+    if (-not $NoPause) { Write-Host "`nPress Enter to close..."; [void][Console]::ReadLine() }
+    exit 1
+}
+
 function Write-Step($msg) { Write-Host "`n[*] $msg" -ForegroundColor Cyan }
 function Write-Ok($msg)   { Write-Host "    OK: $msg" -ForegroundColor Green }
 function Write-Warn2($msg){ Write-Host "    WARN: $msg" -ForegroundColor Yellow }

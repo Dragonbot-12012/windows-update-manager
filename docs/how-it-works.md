@@ -15,6 +15,49 @@ Enable. Everything lives in [`src/WuCore.ps1`](../src/WuCore.ps1); the GUI is on
 4. **Must be reversible.** The first Disable records the original values; Enable restores them
    byte-for-byte.
 
+## 32-bit and 64-bit builds
+
+The release ships two executables built from the same source:
+
+| File | PE machine | Runs on |
+| --- | --- | --- |
+| `Windows-Update-Manager-x64.exe` | `0x8664` (AMD64) | 64-bit Windows |
+| `Windows-Update-Manager-x86.exe` | `0x014C` (i386) | 32-bit Windows |
+
+Both are real single-file builds; neither is a wrapper around the other.
+
+### Why the 32-bit build refuses to run on 64-bit Windows
+
+Everything this tool writes lives in two places that WOW64 redirects:
+
+- `HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate` — a 32-bit process writing to
+  `HKLM\SOFTWARE` is silently redirected to `HKLM\SOFTWARE\WOW6432Node\...`.
+- `%SystemRoot%\System32\GroupPolicy\Machine\Registry.pol` — a 32-bit process asking for
+  `System32` is redirected to `%SystemRoot%\SysWOW64\...`.
+
+Windows reads the Windows Update policies from the **64-bit** view and the **native** `System32`.
+So a 32-bit process on 64-bit Windows would report success while changing keys that Windows never
+looks at. That is worse than failing, so the app checks first:
+
+```powershell
+function Test-WuArchitectureSupported {
+    return ((-not [Environment]::Is64BitOperatingSystem) -or [Environment]::Is64BitProcess)
+}
+```
+
+- 64-bit Windows + 64-bit process → supported.
+- 32-bit Windows (any process) → supported.
+- 64-bit Windows + 32-bit process → **not** supported.
+
+In the GUI, an unsupported combination looks for `Windows-Update-Manager-x64.exe` (or the old
+`Windows Update Manager.exe`) in the same folder and launches it. If it is not there, the app shows
+a warning and exits with code 1. The two console scripts perform the same check and refuse with a
+message. No registry value or policy file is touched before the check runs.
+
+The build itself is guarded too: `Build-Exe.ps1` reads the PE header of every output and throws if
+the machine type does not match the requested architecture, so an x64 binary can never be published
+under the x86 name.
+
 ## Disable — step by step
 
 ### 1. Pause updates
