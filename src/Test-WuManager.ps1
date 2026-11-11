@@ -150,6 +150,233 @@ for ($cycle = 1; $cycle -le 4; $cycle++) {
     Check 'DisableWindowsUpdateAccess removed' ($null -eq $dwuaAfter) "(got '$dwuaAfter')"
 }
 
+# ---------------------------------------------------------------------------
+# Snapshot / exact restore
+# ---------------------------------------------------------------------------
+Log ""
+Log "== snapshot / exact restore =="
+
+$snapBase = Join-Path $env:TEMP 'wu-manager-test-snapshot'
+Remove-Item $snapBase -Recurse -Force -ErrorAction SilentlyContinue
+New-Item -ItemType Directory -Path $snapBase -Force | Out-Null
+
+function Restore-TestState {
+    param(
+        [object]$Policy,
+        [object]$Ux,
+        [bool]$UxExisted,
+        [object]$Spv,
+        [object]$Dwua,
+        [bool]$ExplorerExisted,
+        [bool]$LegacyExisted,
+        [byte[]]$PolBytes
+    )
+
+    Set-WuRegistrySnapshot -Snapshot $Policy
+
+    foreach ($n in @($script:PauseAllNames + $script:ReleasePinNames)) {
+        if (Test-Path $script:UxKey) {
+            Remove-ItemProperty -Path $script:UxKey -Name $n -Force -ErrorAction SilentlyContinue
+        }
+    }
+    if ($UxExisted) {
+        if (-not (Test-Path $script:UxKey)) { New-Item -Path $script:UxKey -Force | Out-Null }
+        foreach ($p in $Ux.GetEnumerator()) {
+            if ($null -ne $p.Value -and [string]$p.Value -ne '') {
+                New-ItemProperty -Path $script:UxKey -Name $p.Key -Value ([string]$p.Value) -PropertyType String -Force | Out-Null
+            }
+        }
+    } elseif (Test-Path $script:UxKey) {
+        $item = Get-Item -Path $script:UxKey -ErrorAction SilentlyContinue
+        if ($item -and $item.ValueCount -eq 0 -and @(Get-ChildItem -Path $script:UxKey -ErrorAction SilentlyContinue).Count -eq 0) {
+            Remove-Item $script:UxKey -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    Set-WuPageVisibility -SettingsPageVisibility $Spv -DisableWindowsUpdateAccess $Dwua `
+        -ExplorerKeyExisted $ExplorerExisted -LegacyKeyExisted $LegacyExisted
+
+    if ($null -ne $PolBytes) {
+        [IO.File]::WriteAllBytes($script:PolPath, $PolBytes)
+    }
+}
+
+# Capture the clean state so the test can put it back exactly.
+$prePolicy = Get-WuRegistrySnapshot -RootPath $script:WuPolicyKey
+$preUxExisted = Test-Path $script:UxKey
+$preUx = [ordered]@{}
+foreach ($n in @($script:PauseAllNames + $script:ReleasePinNames)) {
+    $v = $null
+    if ($preUxExisted) { $v = (Get-ItemProperty -Path $script:UxKey -Name $n -ErrorAction SilentlyContinue).$n }
+    $preUx[$n] = $(if ($null -eq $v) { $null } else { [string]$v })
+}
+$preSpv = $null
+if (Test-Path $script:ExplorerPolicyKey) {
+    $preSpv = (Get-ItemProperty -Path $script:ExplorerPolicyKey -Name 'SettingsPageVisibility' -ErrorAction SilentlyContinue).SettingsPageVisibility
+}
+$preDwua = $null
+if (Test-Path $script:LegacyWuPolicyKey) {
+    $preDwua = (Get-ItemProperty -Path $script:LegacyWuPolicyKey -Name 'DisableWindowsUpdateAccess' -ErrorAction SilentlyContinue).DisableWindowsUpdateAccess
+}
+$preExplorerExisted = Test-Path $script:ExplorerPolicyKey
+$preLegacyExisted = Test-Path $script:LegacyWuPolicyKey
+$prePolBytes = $null
+if (Test-Path $script:PolPath) { $prePolBytes = [IO.File]::ReadAllBytes($script:PolPath) }
+
+# Seed values that a real machine might already have.
+New-Item -Path $script:WuPolicyKey -Force | Out-Null
+New-Item -Path $script:AuKey -Force | Out-Null
+New-ItemProperty -Path $script:WuPolicyKey -Name 'TargetReleaseVersion' -Value 1 -PropertyType DWord -Force | Out-Null
+New-ItemProperty -Path $script:WuPolicyKey -Name 'TargetReleaseVersionInfo' -Value '22H2' -PropertyType String -Force | Out-Null
+New-ItemProperty -Path $script:WuPolicyKey -Name 'SetDisableUXWUAccess' -Value 0 -PropertyType DWord -Force | Out-Null
+New-ItemProperty -Path $script:WuPolicyKey -Name 'DeferFeatureUpdates' -Value 1 -PropertyType DWord -Force | Out-Null
+New-ItemProperty -Path $script:WuPolicyKey -Name 'DeferFeatureUpdatesPeriodInDays' -Value 7 -PropertyType DWord -Force | Out-Null
+New-ItemProperty -Path $script:AuKey -Name 'NoAutoUpdate' -Value 0 -PropertyType DWord -Force | Out-Null
+
+New-Item -Path $script:UxKey -Force | Out-Null
+$seedPause = '2026-12-31T23:59:59Z'
+New-ItemProperty -Path $script:UxKey -Name 'PauseUpdatesExpiryTime' -Value $seedPause -PropertyType String -Force | Out-Null
+
+if (-not (Test-Path $script:ExplorerPolicyKey)) { New-Item -Path $script:ExplorerPolicyKey -Force | Out-Null }
+$seedSpv = 'hide:privacy'
+New-ItemProperty -Path $script:ExplorerPolicyKey -Name 'SettingsPageVisibility' -Value $seedSpv -PropertyType String -Force | Out-Null
+
+if (-not (Test-Path $script:LegacyWuPolicyKey)) { New-Item -Path $script:LegacyWuPolicyKey -Force | Out-Null }
+New-ItemProperty -Path $script:LegacyWuPolicyKey -Name 'DisableWindowsUpdateAccess' -Value 0 -PropertyType DWord -Force | Out-Null
+
+$polSeeded = $false
+if (Test-Path $script:PolPath) {
+    $seedEntries = @(
+        [pscustomobject]@{ Key = 'Software\Policies\Microsoft\Windows\WindowsUpdate'; Value = 'TargetReleaseVersion'; Type = 4; Data = [BitConverter]::GetBytes([uint32]1) },
+        [pscustomobject]@{ Key = 'Software\Policies\Microsoft\Windows\Personalization'; Value = 'NoLockScreen'; Type = 4; Data = [BitConverter]::GetBytes([uint32]1) }
+    )
+    Add-WuEntriesToPol -Path $script:PolPath -Entries $seedEntries
+    $polSeeded = $true
+}
+
+# First Disable must snapshot the seeded state, not the disabled state.
+$disA = Disable-WuFast -BaseDir $snapBase
+$snapDir = Join-Path $snapBase 'original-state'
+$snapFile = Join-Path $snapDir 'state.json'
+Check 'snapshot created on first Disable' (Test-Path $snapFile)
+Check 'snapshot exported policy .reg' (Test-Path (Join-Path $snapDir 'WindowsUpdate-policy.reg'))
+$snapJson = Get-Content $snapFile -Raw | ConvertFrom-Json
+Check 'snapshot recorded pre-existing TargetReleaseVersion' (@($snapJson.policy.Values | Where-Object { $_.Name -eq 'TargetReleaseVersion' }).Count -eq 1)
+Check 'snapshot recorded pre-existing pause' ($snapJson.ux.PauseUpdatesExpiryTime -eq $seedPause) "(got '$($snapJson.ux.PauseUpdatesExpiryTime)')"
+Check 'disable verification passed' ($disA.Verification.Ok) "($($disA.Verification.Summary))"
+
+# A second Disable must not overwrite the original snapshot.
+$disA2 = Disable-WuFast -BaseDir $snapBase
+$snapJson2 = Get-Content $snapFile -Raw | ConvertFrom-Json
+Check 'second Disable keeps the original snapshot' ($snapJson2.created -eq $snapJson.created)
+
+# Enable must restore the snapshot exactly.
+$enaA = Enable-WuFast -BaseDir $snapBase
+Check 'enable used the snapshot' ($enaA.Mode -eq 'snapshot') "(got $($enaA.Mode))"
+Check 'snapshot removed after restore' (-not (Test-Path $snapDir))
+Check 'enable verification passed' ($enaA.Verification.Ok) "($($enaA.Verification.Summary))"
+
+$trv  = Get-WuRegistryValue -Path $script:WuPolicyKey -Name 'TargetReleaseVersion'
+$trvi = Get-WuRegistryValue -Path $script:WuPolicyKey -Name 'TargetReleaseVersionInfo'
+$sd   = Get-WuRegistryValue -Path $script:WuPolicyKey -Name 'SetDisableUXWUAccess'
+$df   = Get-WuRegistryValue -Path $script:WuPolicyKey -Name 'DeferFeatureUpdates'
+$dfp  = Get-WuRegistryValue -Path $script:WuPolicyKey -Name 'DeferFeatureUpdatesPeriodInDays'
+$nau  = Get-WuRegistryValue -Path $script:AuKey -Name 'NoAutoUpdate'
+Check 'TargetReleaseVersion restored' ($trv -eq 1) "(got $trv)"
+Check 'TargetReleaseVersionInfo restored' ($trvi -eq '22H2') "(got $trvi)"
+Check 'pre-existing SetDisableUXWUAccess=0 restored (not deleted)' ($sd -eq 0) "(got $sd)"
+Check 'pre-existing DeferFeatureUpdates restored' ($df -eq 1) "(got $df)"
+Check 'pre-existing DeferFeatureUpdatesPeriodInDays=7 restored' ($dfp -eq 7) "(got $dfp)"
+Check 'pre-existing NoAutoUpdate=0 restored' ($nau -eq 0) "(got $nau)"
+
+$pauseRestored = $null
+if (Test-Path $script:UxKey) {
+    $pauseRestored = (Get-ItemProperty -Path $script:UxKey -Name 'PauseUpdatesExpiryTime' -ErrorAction SilentlyContinue).PauseUpdatesExpiryTime
+}
+Check 'pre-existing pause restored' ($pauseRestored -eq $seedPause) "(got $pauseRestored)"
+
+$spvRestored = $null
+if (Test-Path $script:ExplorerPolicyKey) {
+    $spvRestored = (Get-ItemProperty -Path $script:ExplorerPolicyKey -Name 'SettingsPageVisibility' -ErrorAction SilentlyContinue).SettingsPageVisibility
+}
+Check 'pre-existing SettingsPageVisibility restored' ($spvRestored -eq $seedSpv) "(got '$spvRestored')"
+
+$dwuaRestored = $null
+if (Test-Path $script:LegacyWuPolicyKey) {
+    $dwuaRestored = (Get-ItemProperty -Path $script:LegacyWuPolicyKey -Name 'DisableWindowsUpdateAccess' -ErrorAction SilentlyContinue).DisableWindowsUpdateAccess
+}
+Check 'pre-existing DisableWindowsUpdateAccess=0 restored' ($dwuaRestored -eq 0) "(got $dwuaRestored)"
+
+$polNow = @(Get-WuPolEntries)
+Check 'pre-existing WU pol entry restored' (@($polNow | Where-Object { $_.Value -eq 'TargetReleaseVersion' }).Count -eq 1) "(got $($polNow.Count) WU entries)"
+Check 'all 8 tool pol entries removed' (@($polNow | Where-Object { $script:WuSettingNames -contains $_.Value }).Count -eq 0)
+if ($polSeeded) {
+    $allPol = @(Get-PolEntries -Path $script:PolPath)
+    Check 'non-WU pol entry preserved' (@($allPol | Where-Object { $_.Key -like '*Personalization*' -and $_.Value -eq 'NoLockScreen' }).Count -eq 1)
+}
+
+# Put the clean state back before the fallback test.
+Restore-TestState -Policy $prePolicy -Ux $preUx -UxExisted $preUxExisted -Spv $preSpv -Dwua $preDwua `
+    -ExplorerExisted $preExplorerExisted -LegacyExisted $preLegacyExisted -PolBytes $prePolBytes
+Remove-Item $snapDir -Recurse -Force -ErrorAction SilentlyContinue
+
+# ---------------------------------------------------------------------------
+# Safe fallback when the snapshot is missing
+# ---------------------------------------------------------------------------
+Log ""
+Log "== safe fallback (snapshot missing) =="
+
+New-Item -Path $script:WuPolicyKey -Force | Out-Null
+New-ItemProperty -Path $script:WuPolicyKey -Name 'TargetReleaseVersion' -Value 1 -PropertyType DWord -Force | Out-Null
+New-ItemProperty -Path $script:WuPolicyKey -Name 'TargetReleaseVersionInfo' -Value '23H2' -PropertyType String -Force | Out-Null
+
+$disB = Disable-WuFast -BaseDir $snapBase
+Check 'fallback test created a snapshot' (Test-Path $snapFile)
+
+# Simulate a machine disabled by an older version: the snapshot is gone.
+Remove-Item $snapDir -Recurse -Force -ErrorAction SilentlyContinue
+$saveWhileDisabled = Save-WuOriginalState -BaseDir $snapBase
+Check 'Save-WuOriginalState refuses to snapshot a disabled machine' ($null -eq $saveWhileDisabled)
+Check 'no snapshot was recreated while disabled' (-not (Test-Path $snapFile))
+
+$enaB = Enable-WuFast -BaseDir $snapBase
+Check 'enable used the fallback path' ($enaB.Mode -eq 'fallback') "(got $($enaB.Mode))"
+Check 'fallback verification passed' ($enaB.Verification.Ok) "($($enaB.Verification.Summary))"
+
+$trvB  = Get-WuRegistryValue -Path $script:WuPolicyKey -Name 'TargetReleaseVersion'
+$trviB = Get-WuRegistryValue -Path $script:WuPolicyKey -Name 'TargetReleaseVersionInfo'
+Check 'fallback left TargetReleaseVersion alone' ($trvB -eq 1) "(got $trvB)"
+Check 'fallback left TargetReleaseVersionInfo alone' ($trviB -eq '23H2') "(got $trviB)"
+
+$left = @()
+foreach ($s in $script:WuSettings) {
+    if ($null -ne (Get-WuRegistryValue -Path $s.Path -Name $s.Name)) { $left += $s.Name }
+}
+Check 'fallback removed all 8 tool values' ($left.Count -eq 0) "($($left -join ', '))"
+
+$pauseB = $null
+if (Test-Path $script:UxKey) {
+    $pauseB = (Get-ItemProperty -Path $script:UxKey -Name 'PauseUpdatesExpiryTime' -ErrorAction SilentlyContinue).PauseUpdatesExpiryTime
+}
+Check 'fallback cleared the pause' ([string]::IsNullOrEmpty($pauseB)) "(got '$pauseB')"
+
+$spvB = $null
+if (Test-Path $script:ExplorerPolicyKey) {
+    $spvB = (Get-ItemProperty -Path $script:ExplorerPolicyKey -Name 'SettingsPageVisibility' -ErrorAction SilentlyContinue).SettingsPageVisibility
+}
+Check 'fallback removed the windowsupdate token' (-not ($spvB -match 'windowsupdate')) "(got '$spvB')"
+
+$dwuaB = $null
+if (Test-Path $script:LegacyWuPolicyKey) {
+    $dwuaB = (Get-ItemProperty -Path $script:LegacyWuPolicyKey -Name 'DisableWindowsUpdateAccess' -ErrorAction SilentlyContinue).DisableWindowsUpdateAccess
+}
+Check 'fallback removed DisableWindowsUpdateAccess' ($null -eq $dwuaB) "(got '$dwuaB')"
+
+# Put the clean state back again.
+Restore-TestState -Policy $prePolicy -Ux $preUx -UxExisted $preUxExisted -Spv $preSpv -Dwua $preDwua `
+    -ExplorerExisted $preExplorerExisted -LegacyExisted $preLegacyExisted -PolBytes $prePolBytes
+Remove-Item $snapBase -Recurse -Force -ErrorAction SilentlyContinue
+
 Log ""
 
 # Leave the machine in whatever state it was in before the test.

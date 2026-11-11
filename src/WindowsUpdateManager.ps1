@@ -20,7 +20,7 @@ $ErrorActionPreference = 'Stop'
 # Replaced with the real version at build time (see src/Build-Exe.ps1).
 # Script mode keeps the fallback below.
 $appVersion = '__APP_VERSION__'
-if ($appVersion -like '__*') { $appVersion = '1.0.1' }
+if ($appVersion -like '__*') { $appVersion = '1.0.2' }
 
 # ---------------------------------------------------------------------------
 # Ensure elevated + STA
@@ -49,6 +49,25 @@ if (-not $isAdmin -or -not $isSTA) {
 Add-Type -AssemblyName PresentationFramework
 Add-Type -AssemblyName PresentationCore
 Add-Type -AssemblyName WindowsBase
+
+# ---------------------------------------------------------------------------
+# Single instance
+# ---------------------------------------------------------------------------
+# Two copies editing Registry.pol at the same time can race. The mutex is held
+# for the lifetime of the process and released automatically on exit.
+$script:singleInstanceMutex = $null
+try {
+    $script:singleInstanceMutex = New-Object System.Threading.Mutex($false, 'Global\WindowsUpdateManager')
+    if (-not $script:singleInstanceMutex.WaitOne(0)) {
+        [System.Windows.MessageBox]::Show(
+            'Windows Update Manager is already running.',
+            'Windows Update Manager', 'OK', 'Information') | Out-Null
+        exit 0
+    }
+} catch {
+    # If the mutex cannot be created, do not block startup.
+    $script:singleInstanceMutex = $null
+}
 
 # Filled in with the logo PNG at build time. Left as a placeholder in script mode,
 # where logo.png next to the script is used instead.
@@ -204,7 +223,7 @@ if (-not (Test-WuArchitectureSupported)) {
     <Grid Grid.Row="1" Margin="0,12,0,0">
       <TextBlock Text="made by dragonbot" Foreground="#585B70" FontSize="11"
                  HorizontalAlignment="Left" VerticalAlignment="Bottom"/>
-      <TextBlock x:Name="lblVersion" Text="v1.0.1" Foreground="#45475A" FontSize="10"
+      <TextBlock x:Name="lblVersion" Text="v1.0.2" Foreground="#45475A" FontSize="10"
                  HorizontalAlignment="Right" VerticalAlignment="Bottom"/>
     </Grid>
   </Grid>
@@ -287,12 +306,27 @@ function Update-StateLabel {
 # ---------------------------------------------------------------------------
 # Fast button actions
 # ---------------------------------------------------------------------------
+function Show-VerificationWarning {
+    param([string]$Action, [object]$Verification)
+    if ($Verification -and -not $Verification.Ok) {
+        [System.Windows.MessageBox]::Show(
+            "Windows Update was $Action, but the read-back check found a mismatch.`n`n$($Verification.Summary)`n`nSee $base\manager.log for details.",
+            'Windows Update Manager', 'OK', 'Warning') | Out-Null
+        return $true
+    }
+    return $false
+}
+
 $script:btnEnable.Add_Click({
     try {
         $script:window.Cursor = [System.Windows.Input.Cursors]::Wait
-        [void](Enable-WuFast -BaseDir $base)
+        $result = Enable-WuFast -BaseDir $base
         Update-StateLabel
-        Set-Status 'Windows Update enabled.' 'ok'
+        if (-not (Show-VerificationWarning -Action 'enabled' -Verification $result.Verification)) {
+            Set-Status 'Windows Update enabled.' 'ok'
+        } else {
+            Set-Status 'Enabled, but verification failed (see manager.log).' 'err'
+        }
     } catch {
         Set-Status "Failed: $($_.Exception.Message)" 'err'
     } finally {
@@ -301,16 +335,26 @@ $script:btnEnable.Add_Click({
 })
 
 $script:btnDisable.Add_Click({
+    $managed = Test-WuManagedDevice
+    $managedNote = ''
+    if ($managed.Managed) {
+        $managedNote = "`n`nNote: this PC looks managed ($($managed.Reasons -join '; ')). Domain or MDM policy may override local settings."
+    }
+
     $answer = [System.Windows.MessageBox]::Show(
-        "Disable Windows Update?`n`nUpdates will be paused and blocked by policy, and the Windows Update page will be hidden from Settings. Windows Update services are left running so Microsoft Store keeps working.`n`nThis is reversible, but the PC will not receive security updates until you enable it again.",
+        "Disable Windows Update?`n`nUpdates will be paused and blocked by policy, and the Windows Update page will be hidden from Settings. Windows Update services are left running so Microsoft Store keeps working.`n`nThis is reversible, but the PC will not receive security updates until you enable it again.$managedNote",
         'Confirm', 'YesNo', 'Warning'
     )
     if ($answer -ne 'Yes') { return }
     try {
         $script:window.Cursor = [System.Windows.Input.Cursors]::Wait
-        [void](Disable-WuFast -BaseDir $base)
+        $result = Disable-WuFast -BaseDir $base
         Update-StateLabel
-        Set-Status 'Windows Update disabled (updates paused).' 'ok'
+        if (-not (Show-VerificationWarning -Action 'disabled' -Verification $result.Verification)) {
+            Set-Status 'Windows Update disabled (updates paused).' 'ok'
+        } else {
+            Set-Status 'Disabled, but verification failed (see manager.log).' 'err'
+        }
     } catch {
         Set-Status "Failed: $($_.Exception.Message)" 'err'
     } finally {
@@ -320,3 +364,7 @@ $script:btnDisable.Add_Click({
 
 Update-StateLabel
 [void]$window.ShowDialog()
+
+try {
+    if ($script:singleInstanceMutex) { $script:singleInstanceMutex.ReleaseMutex() }
+} catch { }

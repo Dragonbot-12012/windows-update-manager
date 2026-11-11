@@ -136,6 +136,18 @@ some builds.
 
 ### 5. Save the originals
 
+Before the first change, `Save-WuOriginalState` writes a complete snapshot to
+`%ProgramData%\WindowsUpdateManager\original-state\`:
+
+- `state.json` — the full Windows Update policy key tree (every value, its kind and its data,
+  including child keys), the six pause values plus `TargetReleaseVersion` /
+  `TargetReleaseVersionInfo`, the Windows Update `Registry.pol` entries, the original
+  `SettingsPageVisibility` / `DisableWindowsUpdateAccess` values, and whether each key existed.
+- `WindowsUpdate-policy.reg` — a human-readable `reg export` of the policy key.
+
+A small marker key still records the Settings-page values so the page can be un-hidden even if the
+snapshot is lost:
+
 ```
 HKLM\SOFTWARE\WindowsUpdateManager
     SavedSPV  = <original SettingsPageVisibility, or "__NONE__">
@@ -143,8 +155,9 @@ HKLM\SOFTWARE\WindowsUpdateManager
     MenuHidden = 1
 ```
 
-This marker key is what makes Enable exact. If the values did not exist before, `Enable` deletes
-them again instead of writing a default.
+`Save-WuOriginalState` refuses to snapshot a state this tool already created (marker present,
+far-future pause, or all eight policy values already set), so Enable can never "restore" a disabled
+machine. A second Disable keeps the first snapshot instead of overwriting it.
 
 ### 6. Services — intentionally untouched
 
@@ -157,12 +170,27 @@ wuauserv  UsoSvc  DoSvc  InstallService  AppXSvc  bits  cryptsvc
 
 ## Enable — step by step
 
-1. Delete `HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate` recursively.
-2. Strip the Windows Update records out of `Registry.pol` (others preserved).
-3. Delete the six pause values plus `TargetReleaseVersion` / `TargetReleaseVersionInfo`.
-4. Restore `SettingsPageVisibility` and `DisableWindowsUpdateAccess` from the marker key, or delete
-   them if they were absent originally, then clear the marker values.
-5. Reset normal service start types:
+### If a snapshot exists (normal case)
+
+1. Recreate `HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate` exactly as it was: remove the
+   current key, recreate every recorded key, and write every recorded value back with its original
+   type and data.
+2. Remove the Windows Update entries from `Registry.pol`, then re-add the original entries.
+3. Remove the six pause values plus `TargetReleaseVersion` / `TargetReleaseVersionInfo`, then restore
+   the recorded originals (including the case where they did not exist).
+4. Restore `SettingsPageVisibility` and `DisableWindowsUpdateAccess`, or delete them if they were
+   absent originally, and remove any keys that did not exist before.
+5. Clear the marker values and delete the snapshot directory (only after every step succeeded).
+
+### If no snapshot exists (safe fallback)
+
+Used for machines disabled by an older version. Enable removes only the eight values and
+`Registry.pol` entries this tool owns, clears the pause values, and un-hides the Settings page. It
+deliberately leaves pre-existing policy such as `TargetReleaseVersion` alone.
+
+### Either path
+
+6. Reset normal service start types:
 
    | Service | Startup type |
    | --- | --- |
@@ -173,10 +201,44 @@ wuauserv  UsoSvc  DoSvc  InstallService  AppXSvc  bits  cryptsvc
    | `bits` | Automatic |
    | `cryptsvc` | Automatic |
 
-6. Start `bits`, `cryptsvc`, `wuauserv`, `DoSvc`, `UsoSvc` if they are not running.
+7. Start `bits`, `cryptsvc`, `wuauserv`, `DoSvc`, `UsoSvc` if they are not running.
 
 Windows will pick the changes up on its own schedule. You can force an immediate check from
 Settings → Windows Update → **Check for updates**.
+
+## Verification
+
+`Test-WuApplied` re-reads the machine immediately after each action:
+
+- **Disabled** — all eight policy values, the eight `Registry.pol` entries, the hidden page, the
+  far-future pause and the reported state.
+- **Enabled** — the policy key existence, every original value, the original `Registry.pol`
+  entries, the pause/release values, `SettingsPageVisibility` and the cleared marker.
+
+A failure does not undo the action; it is written to `manager.log` and shown as a warning dialog so
+you know to check the machine. This catches partial writes, redirected registry views, and policy
+that was overwritten between the write and the read.
+
+## Activity log
+
+Every action writes to `%ProgramData%\WindowsUpdateManager\manager.log`:
+
+```
+[2026-11-11 10:45:47] [INFO] Saved original state snapshot to ...\original-state
+[2026-11-11 10:45:47] [INFO] Verification (Disabled): All 12 checks passed.
+[2026-11-11 10:45:48] [INFO] Restored the exact original state from the snapshot.
+```
+
+The file is rotated at 1 MB (`manager.log.1`). It contains policy paths and values only.
+
+## Managed devices
+
+Before Disable, `Test-WuManagedDevice` asks `dsregcmd /status` whether the PC is domain-joined,
+Azure AD-joined, Enterprise-joined or MDM-enrolled, then falls back to registry checks. Built-in
+enrollment stubs (for example `Deploy Authority`) are ignored so a clean machine is not reported as
+managed. When management is detected, the confirmation dialog warns that organisation policy may
+override local settings; the tool still runs, because a local policy can be useful alongside
+central management.
 
 ## Backups
 

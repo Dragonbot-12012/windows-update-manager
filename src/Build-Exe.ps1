@@ -21,8 +21,8 @@
     Where to write the .exe. Only valid when building a single architecture.
 
 .PARAMETER Version
-    Four-part file version. Defaults to 1.0.1.0. The GUI footer shows the first
-    three parts (for example v1.0.1).
+    Four-part file version. Defaults to 1.0.2.0. The GUI footer shows the first
+    three parts (for example v1.0.2).
 
 .EXAMPLE
     .\src\Build-Exe.ps1
@@ -36,7 +36,7 @@ param(
 
     [string]$OutputPath,
 
-    [string]$Version = '1.0.1.0'
+    [string]$Version = '1.0.2.0'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -64,7 +64,7 @@ if ($OutputPath -and $targets.Count -ne 1) {
     throw '-OutputPath can only be used when building a single architecture.'
 }
 
-# 1.0.1.0 -> 1.0.1 for the GUI footer
+# 1.0.2.0 -> 1.0.2 for the GUI footer
 $shortVersion = ((($Version -split '\.') + @('0', '0', '0'))[0..2]) -join '.'
 
 # ---------------------------------------------------------------------------

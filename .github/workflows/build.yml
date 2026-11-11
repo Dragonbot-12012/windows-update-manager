@@ -41,7 +41,7 @@ jobs:
         run: |
           Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
 
-          $version = '1.0.1.0'
+          $version = '1.0.2.0'
           if ($env:GITHUB_REF -match '^refs/tags/v(\d+\.\d+\.\d+)') {
             $version = "$($matches[1]).0"
           }

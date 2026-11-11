@@ -73,8 +73,14 @@ Something re-applied policy. Check these in order:
    ```
 
 4. **Is a domain / MDM policy in charge?** On a work or school machine, `gpupdate` can overwrite
-   local settings. Run `gpresult /h %TEMP%\gp.html` and look for Windows Update policies coming from
-   the organization. Local policy cannot override those.
+   local settings. The app detects this and warns before Disable, but you can check yourself:
+
+   ```powershell
+   dsregcmd /status   # look at DomainJoined / AzureAdJoined / EnterpriseJoined / MdmUrl
+   gpresult /h %TEMP%\gp.html
+   ```
+
+   Local policy cannot override organisation policy.
 
 5. **Windows Update Medic Service** (`WaaSMedicSvc`) can repair update components on some builds.
    If updates keep coming back, re-run Disable; the pause is the strongest lever.
@@ -96,11 +102,32 @@ Start-Service wuauserv, UsoSvc, DoSvc, bits, cryptsvc
 If the Store still fails, it is usually unrelated (store cache, sign-in). Try
 `wsreset.exe`, then reboot.
 
+## The app says "verification failed" after Disable or Enable
+
+The action was attempted, but the read-back check found a mismatch. Open
+`%ProgramData%\WindowsUpdateManager\manager.log` — the failing checks are listed by name, for
+example:
+
+```
+Verification (Disabled): 1 of 12 checks failed: Registry.pol mirrors the 8 tool values
+```
+
+Common causes:
+
+- **A managed device re-applied its own policy** between the write and the read. See the
+  domain/MDM check above.
+- **`Registry.pol` is locked** by a Group Policy refresh. Close `gpedit.msc` / wait for the refresh,
+  then run the action again.
+- **Antivirus blocked a registry write.** Check its protection log.
+- **A 32-bit process wrote to `WOW6432Node`.** Use the x64 build on 64-bit Windows.
+
+The app does not silently retry; running the same action again is safe and idempotent.
+
 ## Enable didn't bring the page back
 
-Enable restores the values recorded in `HKLM\SOFTWARE\WindowsUpdateManager`. If that key was
-deleted manually, the originals are gone and the policy values are simply removed (which is
-normally the desired end state anyway). To do it by hand:
+Enable restores `%ProgramData%\WindowsUpdateManager\original-state\` when it exists. If the snapshot
+and the marker key were deleted manually, the originals are gone and the policy values are simply
+removed (which is normally the desired end state anyway). To do it by hand:
 
 ```powershell
 Remove-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Explorer' -Name SettingsPageVisibility -ErrorAction SilentlyContinue
@@ -132,8 +159,11 @@ finish (or reboot), then press Disable again — the pause is re-applied to the 
 - The app makes no network requests. Watch it with Resource Monitor or
   [TCPView](https://learn.microsoft.com/sysinternals/downloads/tcpview).
 - Diff the registry before/after with the backups in `%ProgramData%\WindowsUpdateManager\`.
+- Read the plain-text activity log at `%ProgramData%\WindowsUpdateManager\manager.log`.
+- Inspect the exact pre-change snapshot in `%ProgramData%\WindowsUpdateManager\original-state\`
+  (it is deleted after a successful Enable).
 - Run `.\src\Test-WuManager.ps1` and read `%TEMP%\wu-manager-test.log`.
-- Or just read [`src/WuCore.ps1`](../src/WuCore.ps1) — it is ~460 lines and commented.
+- Or just read [`src/WuCore.ps1`](../src/WuCore.ps1) — it is commented and split into small functions.
 
 ## Still stuck?
 

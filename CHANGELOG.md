@@ -3,6 +3,46 @@
 All notable changes to this project are documented here.
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [1.0.2] — 2026-11-11
+
+Correctness release: exact restore, read-back verification, and managed-device awareness.
+
+### Added
+
+- **Full original-state snapshot.** Before the first change, the app saves the complete Windows
+  Update policy key tree (every value, including child keys), the pause/release values,
+  the Windows Update `Registry.pol` entries, the Settings-page values and key-existence flags to
+  `%ProgramData%\WindowsUpdateManager\original-state\state.json`, plus a human-readable
+  `WindowsUpdate-policy.reg`. Enable restores this exactly and then deletes the snapshot.
+- **Safe fallback.** If no snapshot exists (for example a machine disabled by an older version),
+  Enable removes only the eight values and policy entries this tool owns and leaves pre-existing
+  policy such as `TargetReleaseVersion` untouched.
+- **Read-back verification.** After Disable and Enable the app re-reads the registry and
+  `Registry.pol`, and warns with a dialog plus a `manager.log` entry if anything did not apply.
+- **Managed-device detection.** `dsregcmd /status` (then a registry fallback) detects domain,
+  Azure AD, Enterprise and MDM management; the Disable confirmation notes that organisation policy
+  may override local settings. Built-in enrollment stubs are ignored.
+- **Activity log.** `%ProgramData%\WindowsUpdateManager\manager.log`, rotated at 1 MB.
+- **Single-instance mutex.** `Global\WindowsUpdateManager` prevents two copies from racing while
+  editing `Registry.pol`.
+
+### Fixed
+
+- **Disable no longer destroys pre-existing policy values.** `New-Item -Force` on an existing
+  registry key silently deletes every value in it. Disable now creates keys only when they are
+  missing, so values like `TargetReleaseVersion` survive.
+- **Snapshot restore now actually writes values.** The previous restore path used
+  `RegistryKey.SetValue` on a key returned by `Get-Item`, which is read-only on some PowerShell
+  builds and threw *"Cannot write to the registry key."* Restore now uses `New-ItemProperty`.
+- **`REG_EXPAND_SZ` values are captured and compared raw**, so an exact restore does not bake in the
+  current environment.
+
+### Changed
+
+- GUI footer, executable version and README badge are `v1.0.2`.
+- Self-test grows from 111 to **143** checks, including a snapshot round-trip with seeded
+  pre-existing policy and a snapshot-missing fallback case.
+
 ## [1.0.1] — 2026-11-10
 
 32-bit support.
@@ -58,5 +98,6 @@ First public release.
 - Windows Update still appears as a "Last checked" card on the Settings **Home** page; the page
   itself and the sidebar entry are hidden.
 
+[1.0.2]: https://github.com/Dragonbot-12012/windows-update-manager/releases/tag/v1.0.2
 [1.0.1]: https://github.com/Dragonbot-12012/windows-update-manager/releases/tag/v1.0.1
 [1.0.0]: https://github.com/Dragonbot-12012/windows-update-manager/releases/tag/v1.0.0

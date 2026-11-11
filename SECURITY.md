@@ -62,6 +62,15 @@ one that was built and published — do not run it.
 - No writes outside `HKLM\SOFTWARE\...` policy keys, `%ProgramData%\WindowsUpdateManager\`, and
   `Registry.pol`
 
+### What it writes on disk
+
+- `%ProgramData%\WindowsUpdateManager\original-state\` — the exact pre-change snapshot
+  (`state.json` + `WindowsUpdate-policy.reg`), deleted after a successful Enable.
+- `%ProgramData%\WindowsUpdateManager\backup-<timestamp>\` — timestamped registry exports and a
+  `Registry.pol` copy, written before every action.
+- `%ProgramData%\WindowsUpdateManager\manager.log` — plain-text activity and verification log,
+  rotated at 1 MB. It contains only Windows Update policy paths and values, never user data.
+
 ### Inherent risks
 
 Disabling Windows Update means **no security patches** until you re-enable it. That is the intended

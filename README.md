@@ -7,7 +7,7 @@ No Group Policy Editor required, no services disabled, no third-party drivers.
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows%208%20%7C%2010%20%7C%2011-0078D4.svg)](#requirements)
-[![Version](https://img.shields.io/badge/version-1.0.1-brightgreen.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.0.2-brightgreen.svg)](CHANGELOG.md)
 
 ![Windows Update Manager screenshot](docs/screenshot.png)
 
@@ -30,10 +30,19 @@ Result: Windows Update stops, the Microsoft Store keeps working.
 
 - **Two buttons.** Enable and Disable. Both finish in well under a second.
 - **Policy-only.** `wuauserv`, `UsoSvc`, `DoSvc`, `bits`, `cryptsvc` and friends stay `Running`.
-- **Fully reversible.** The original values are saved before the first change and restored exactly.
+- **Fully reversible.** The complete original policy key, pause/release values, `Registry.pol`
+  entries and Settings-page visibility are snapshotted before the first change and restored exactly.
+  Pre-existing values such as `TargetReleaseVersion` are never destroyed.
+- **Read-back verification.** After every action the app re-reads the machine and warns you if
+  anything did not apply.
 - **Hides the Windows Update page** in Settings while disabled, and brings it back when enabled.
 - **Automatic backups.** Registry exports and `Registry.pol` are copied to
   `%ProgramData%\WindowsUpdateManager\backup-<timestamp>\` before every change.
+- **Activity log.** Every action and verification result is written to
+  `%ProgramData%\WindowsUpdateManager\manager.log` (rotated at 1 MB).
+- **Managed-device aware.** Detects domain/Azure AD/MDM management and warns that organisation
+  policy may override local settings.
+- **Single instance.** A named mutex stops two copies from editing `Registry.pol` at once.
 - **Works without `gpedit.msc`**, so Windows Home editions are supported.
 - **Single `.exe`.** Logo, logic and icon are all embedded — no side files, no installer.
 - **32-bit and 64-bit builds.** One file each, named so you can't grab the wrong one.
@@ -67,7 +76,8 @@ Not sure which one? Press <kbd>Win</kbd>+<kbd>Pause</kbd> (or Settings → Syste
    is hidden.
 4. Click **Enable** → everything is restored, including the Settings page.
 
-Nothing is written next to the executable. Backups live in `%ProgramData%\WindowsUpdateManager\`.
+Nothing is written next to the executable. Backups, the original-state snapshot and `manager.log`
+live in `%ProgramData%\WindowsUpdateManager\`.
 
 ## What it actually changes
 
@@ -82,14 +92,18 @@ Nothing is written next to the executable. Backups live in `%ProgramData%\Window
 | **Hide page** | `...\Policies\Explorer` → `SettingsPageVisibility` gets `windowsupdate` appended (existing tokens preserved) |
 | **Legacy hide** | `...\Policies\WindowsUpdate` → `DisableWindowsUpdateAccess=1` (Windows 8/8.1/10) |
 | **Bookkeeping** | `HKLM\SOFTWARE\WindowsUpdateManager` stores the original `SettingsPageVisibility` and `DisableWindowsUpdateAccess` values |
+| **Snapshot** | Before the first change, the full policy key tree, pause/release values, `Registry.pol` entries and key-existence flags are saved to `%ProgramData%\WindowsUpdateManager\original-state\` |
+| **Verification** | Every written value is read back; a mismatch is logged and shown in a warning dialog |
 | **Services** | **Untouched** |
 
 ### Enable
 
-Reverses every item above: removes the policy keys, strips only the Windows Update entries from
-`Registry.pol` (other GPO entries are left alone), clears the pause and release pins, restores the
-exact original Settings-page values, resets normal service start types, and starts the update
-services.
+Reverses every item above. When a snapshot exists it is restored byte-for-byte: the policy key is
+recreated exactly, the original `Registry.pol` entries are put back, pause/release values are
+restored, and the Settings page returns to its previous visibility. If no snapshot exists (for
+example a machine disabled by an older version), Enable uses a safe fallback that removes only the
+eight values and policy entries this tool owns, leaving pre-existing policy alone. Either way it
+resets normal service start types and starts the update services.
 
 ### What it deliberately does *not* do
 
@@ -126,7 +140,7 @@ Useful switches:
 ```powershell
 .\src\Build-Exe.ps1 -Architecture x64          # only the 64-bit build
 .\src\Build-Exe.ps1 -Architecture x86          # only the 32-bit build
-.\src\Build-Exe.ps1 -Version 1.0.1.0
+.\src\Build-Exe.ps1 -Version 1.0.2.0
 .\src\Build-Exe.ps1 -Architecture x64 -OutputPath "$env:TEMP\WUM.exe"
 ```
 
@@ -157,12 +171,14 @@ On 64-bit Windows, run the source from **64-bit PowerShell**. A 32-bit session i
 
 `Test-WuManager.ps1` runs four full `Disable → Enable` cycles and verifies every state transition
 (policy key present/absent, pause window, `Registry.pol` entries, page visibility, service state).
+It also seeds a realistic pre-existing policy and checks that Disable → Enable restores it exactly,
+then deletes the snapshot and checks the safe fallback leaves pre-existing values alone.
 
 ```powershell
 .\src\Test-WuManager.ps1
 ```
 
-The log is written to `%TEMP%\wu-manager-test.log`. The v1.0.1 release passes **111 / 111** checks.
+The log is written to `%TEMP%\wu-manager-test.log`. The v1.0.2 release passes **143 / 143** checks.
 
 ## Project layout
 

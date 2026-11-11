@@ -190,8 +190,10 @@ if (Test-Path $polPath) {
 # ---------------------------------------------------------------------------
 Write-Step "Applying Windows Update blocks"
 
-New-Item -Path $wu -Force | Out-Null
-New-Item -Path $au -Force | Out-Null
+# Only create missing keys. New-Item -Force on an existing registry key wipes
+# every value in it, which would destroy pre-existing Windows Update policy.
+if (-not (Test-Path $wu)) { New-Item -Path $wu -Force | Out-Null }
+if (-not (Test-Path $au)) { New-Item -Path $au -Force | Out-Null }
 
 $settings = @(
     @{ Path = $wu; Name = 'SetDisableUXWUAccess';                          Value = 1 },
